@@ -133,7 +133,7 @@ class TextDataset(data.Dataset):
         #
         filename_bbox = {img_file[:-4]: [] for img_file in filenames}
         numImgs = len(filenames)
-        for i in xrange(0, numImgs):
+        for i in range(0, numImgs):
             # bbox = [x-left, y-top, width, height]
             bbox = df_bounding_boxes.iloc[i][1:].tolist()
 
@@ -251,7 +251,7 @@ class TextDataset(data.Dataset):
     def load_class_id(self, data_dir, total_num):
         if os.path.isfile(data_dir + '/class_info.pickle'):
             with open(data_dir + '/class_info.pickle', 'rb') as f:
-                class_id = pickle.load(f)
+                class_id = pickle.load(f, encoding="latin1")
         else:
             class_id = np.arange(total_num)
         return class_id
