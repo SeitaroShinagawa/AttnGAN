@@ -24,14 +24,19 @@ import time
 import numpy as np
 import sys
 
+from tensorboardX import SummaryWriter
+
 # ################# Text to image task############################ #
 class condGANTrainer(object):
     def __init__(self, output_dir, data_loader, n_words, ixtoword):
         if cfg.TRAIN.FLAG:
             self.model_dir = os.path.join(output_dir, 'Model')
             self.image_dir = os.path.join(output_dir, 'Image')
+            self.log_dir = os.path.join(output_dir, 'Log')
             mkdir_p(self.model_dir)
             mkdir_p(self.image_dir)
+            mkdir_p(self.log_dir)
+            self.summary_writer = SummaryWriter(self.log_dir)
 
         torch.cuda.set_device(cfg.GPU_ID)
         cudnn.benchmark = True
@@ -275,6 +280,7 @@ class condGANTrainer(object):
                     optimizersD[i].step()
                     errD_total += errD
                     D_logs += 'errD%d: %.2f ' % (i, errD.item())
+                    self.summary_writer.add_scalar('train/D_loss{}'.format(i), errD.item(), step)
 
                 #######################################################
                 # (4) Update G network: maximize log(D(G(z)))
@@ -292,6 +298,8 @@ class condGANTrainer(object):
                 kl_loss = KL_loss(mu, logvar)
                 errG_total += kl_loss
                 G_logs += 'kl_loss: %.2f ' % kl_loss.item()
+                self.summary_writer.add_scalar('train/G_total', errG_total.item(), step)
+                self.summary_writer.add_scalar('train/kl_loss', kl_loss.item(), step)
                 # backward and update parameters
                 errG_total.backward()
                 optimizerG.step()
