@@ -7,6 +7,8 @@ import torch
 import torch.nn as nn
 
 from PIL import Image, ImageDraw, ImageFont
+font_path = "/home/seitaro-s/.pyenv/versions/miniconda3-4.3.11/envs/pytorch0.4_2/lib/python3.6/site-packages/matplotlib/mpl-data/fonts/ttf/DejaVuSans-Bold.ttf"
+font = ImageFont.truetype(font_path, 50)
 from copy import deepcopy
 import skimage.transform
 
@@ -32,7 +34,8 @@ def drawCaption(convas, captions, ixtoword, vis_size, off1=2, off2=2):
     img_txt = Image.fromarray(convas)
     # get a font
     # fnt = None  # ImageFont.truetype('Pillow/Tests/fonts/FreeMono.ttf', 50)
-    fnt = ImageFont.truetype('Pillow/Tests/fonts/FreeMono.ttf', 50)
+    #fnt = ImageFont.truetype('Pillow/Tests/fonts/FreeMono.ttf', 50)
+    fnt = font
     # get a drawing context
     d = ImageDraw.Draw(img_txt)
     sentence_list = []
@@ -72,11 +75,14 @@ def build_super_images(real_imgs, captions, ixtoword,
         istart = (i + 2) * (vis_size + 2)
         iend = (i + 3) * (vis_size + 2)
         text_convas[:, istart:iend, :] = COLOR_DIC[i]
-
+    
+    if isinstance(real_imgs, np.ndarray):
+        print("####real_imgs is ndarray!!!####")
+        real_imgs = torch.FloatTensor(real_imgs) 
 
     real_imgs = \
         nn.functional.interpolate(real_imgs,size=(vis_size, vis_size),
-            mode='bilinear', align_corners=True)
+            mode='bilinear', align_corners=False)
     # [-1, 1] --> [0, 1]
     real_imgs.add_(1).div_(2).mul_(255)
     real_imgs = real_imgs.data.numpy()
@@ -86,10 +92,11 @@ def build_super_images(real_imgs, captions, ixtoword,
     middle_pad = np.zeros([pad_sze[2], 2, 3])
     post_pad = np.zeros([pad_sze[1], pad_sze[2], 3])
     if lr_imgs is not None:
+        #real_imgs = torch.FloatTensor(real_imgs) 
         lr_imgs = \
-            nn.functional.interpolate(real_imgs,size=(vis_size, vis_size),
-                mode='bilinear', align_corners=True)
-    # [-1, 1] --> [0, 1]
+            nn.functional.interpolate(lr_imgs,size=(vis_size, vis_size),
+                mode='bilinear', align_corners=False)
+        # [-1, 1] --> [0, 1]
         # [-1, 1] --> [0, 1]
         lr_imgs.add_(1).div_(2).mul_(255)
         lr_imgs = lr_imgs.data.numpy()
@@ -190,7 +197,7 @@ def build_super_images2(real_imgs, captions, cap_lens, ixtoword,
 
     real_imgs = \
         nn.functional.interpolate(real_imgs,size=(vis_size, vis_size),
-            mode='bilinear', align_corners=True)
+            mode='bilinear', align_corners=False)
     # [-1, 1] --> [0, 1]
     # [-1, 1] --> [0, 1]
     real_imgs.add_(1).div_(2).mul_(255)
