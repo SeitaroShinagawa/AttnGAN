@@ -6,7 +6,7 @@ from __future__ import unicode_literals
 
 from nltk.tokenize import RegexpTokenizer
 from collections import defaultdict
-from miscc.config import cfg
+from miscc.config import cfg, cfg_from_file
 
 import torch
 import torch.utils.data as data
@@ -128,6 +128,8 @@ class TextDataset(data.Dataset):
         self.target_transform = target_transform
         self.embeddings_num = cfg.TEXT.CAPTIONS_PER_IMAGE
         self.specific_sent_ix = None
+        self.use_attribute = use_attribute
+        self.use_embedding = use_embedding
 
         self.imsize = []
         for i in range(cfg.TREE.BRANCH_NUM):
@@ -302,7 +304,7 @@ class TextDataset(data.Dataset):
             filenames = test_names
         return filenames, captions, ixtoword, wordtoix, n_words
 
-    def specify_caption_index(index):
+    def specify_caption_index(self, index):
         self.specific_sent_ix = index
         print("specified sentence index = ", self.specific_sent_ix)
     
@@ -406,7 +408,7 @@ class TextDataset(data.Dataset):
 if __name__ == "__main__":
     # python datasets.py --cfg cfg/bird_embedding.yml
     from main import parse_args
-    args = parse_args()
+    args = parse_args(['--cfg','cfg/bird_embedding.yml'])
     if args.cfg_file is not None:
         cfg_from_file(args.cfg_file)
 
@@ -448,7 +450,9 @@ if __name__ == "__main__":
         dataset_test, batch_size=cfg.TRAIN.BATCH_SIZE,
         drop_last=False, shuffle=False, num_workers=int(cfg.WORKERS))
 
-	# Build text encoder    
+    # Build text encoder    
+    from model import RNN_ENCODER
+    n_words = dataset_train.n_words
     text_encoder = \
         RNN_ENCODER(n_words, nhidden=cfg.TEXT.EMBEDDING_DIM)
     state_dict = \
@@ -463,18 +467,19 @@ if __name__ == "__main__":
     if cfg.CUDA:
         text_encoder = text_encoder.cuda()
 
-	def create_embeddings(dataloader, text_encoder):
-		emb_dict = {}
+    def create_embeddings(dataloader, text_encoder):
+        emb_dict = {}
         for sent_ix in range(cfg.TEXT.CAPTIONS_PER_IMAGE):
-    	    dataloader.dataset.specify_caption_index(sent_ix) 
-            for data in dataloader:
-			    real_imgs, wrong_imgs, captions, sorted_cap_lens,
-				    class_ids, keys = prepare_data(data)
+            dataloader.dataset.specify_caption_index(sent_ix) 
+            for step, data in enumerate(dataloader):
+                real_imgs, wrong_imgs, captions, sorted_cap_lens,\
+                    class_ids, keys = prepare_data(data)
 
-                hidden = text_encoder.init_hidden(batch_size) 
+                batch_size = len(sorted_cap_lens)
+                hidden = text_encoder.init_hidden(batch_size)
                 # words_embs: batch_size x nef x seq_len
                 # sent_emb: batch_size x nef
-                words_embs, sent_emb = text_encoder(captions, cap_lens, hidden)
+                words_embs, sent_emb = text_encoder(captions, sorted_cap_lens, hidden)
                 words_embs, sent_emb = words_embs.detach(), sent_emb.detach()
 
                 for i, key in enumerate(keys):
@@ -485,13 +490,19 @@ if __name__ == "__main__":
                         emb_dict[key] = [emb_elements]
                     else:
                         emb_dict[key].append(emb_elements)
-		return emb_dict
-
-	train_emb_dict = create_embeddings(dataloader_train, text_encoder) 
-	test_emb_dict = create_embeddings(dataloader_test, text_encoder)
+                if step % 100 == 0:
+                    print("processed:", step)
+        return emb_dict
+    
+    print("Creating train embeddings")
+    train_emb_dict = create_embeddings(dataloader_train, text_encoder) 
+    print("Creating test embeddings")
+    test_emb_dict = create_embeddings(dataloader_test, text_encoder)
     def save_emb(path, emb_dict):
         with open(path, "wb") as f:
             pickle.dump(emb_dict, f)
 
+    print("Saving train embeddings")
     save_emb("embedding_train.pickle", train_emb_dict)
+    print("Saving test embeddings")
     save_emb("embedding_test.pickle", test_emb_dict)
