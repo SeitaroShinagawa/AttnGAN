@@ -25,17 +25,11 @@ else:
     import pickle
 
 
-def prepare_data(data, use_attribute=False, use_embedding=False):
+def prepare_data(data, use_attribute=False):
     imgs, captions, captions_lens, class_ids, keys = data[:5]
-    if use_attribute and use_embedding:
-        assert len(data[5:]) == 2
-        embeddings, attributes = data[5:]
-    elif use_attribute:
+    if use_attribute:
         assert len(data[5:]) == 1
         attributes = data[5]
-    elif use_embedding:
-        assert len(data[5:]) == 1
-        embeddings = data[5]
 
     # sort data by the length in a decreasing order
     sorted_cap_lens, sorted_cap_indices = \
@@ -62,23 +56,17 @@ def prepare_data(data, use_attribute=False, use_embedding=False):
     if cfg.CUDA:
         captions = Variable(captions).cuda()
         sorted_cap_lens = Variable(sorted_cap_lens).cuda()
-        if use_embedding:
-            embeddings = embeddings[sorted_cap_indices].cuda()
         if use_attribute:
             attributes = attributes[sorted_cap_indices].float().cuda()
     else:
         captions = Variable(captions)
         sorted_cap_lens = Variable(sorted_cap_lens)
-        if use_embedding:
-            embeddings = embeddings[sorted_cap_indices]
         if use_attribute:
             attributes = attributes[sorted_cap_indices].float()
     
     out_list = [real_imgs, wrong_imgs, captions, sorted_cap_lens, class_ids, keys]
     if use_attribute:
         out_list.append(attributes)
-    if use_embedding:
-        out_list.append(embeddings)
     
     return out_list
 
@@ -120,7 +108,7 @@ class TextDataset(data.Dataset):
     def __init__(self, data_dir, split='train',
                  base_size=64,
                  transform=None, target_transform=None,
-                 use_attribute=False, use_embedding=False):
+                 use_attribute=False):
         self.transform = transform
         self.norm = transforms.Compose([
             transforms.ToTensor(),
@@ -129,7 +117,6 @@ class TextDataset(data.Dataset):
         self.embeddings_num = cfg.TEXT.CAPTIONS_PER_IMAGE
         self.specific_sent_ix = None
         self.use_attribute = use_attribute
-        self.use_embedding = use_embedding
 
         self.imsize = []
         for i in range(cfg.TREE.BRANCH_NUM):
@@ -152,9 +139,6 @@ class TextDataset(data.Dataset):
 
         self.filenames, self.captions, self.ixtoword, \
             self.wordtoix, self.n_words = self.load_text_data(data_dir, split)
-
-        if self.use_embedding:
-            self.embeddings = self.load_embedding(self.split_dir, 'myembedding')
 
         self.class_id = self.load_class_id(self.split_dir, len(self.filenames))
         self.number_example = len(self.filenames)
@@ -308,17 +292,6 @@ class TextDataset(data.Dataset):
         self.specific_sent_ix = index
         print("specified sentence index = ", self.specific_sent_ix)
     
-    def load_embedding(self, data_dir, embedding_type='myembedding'):
-        if embedding_type == 'myembedding':
-            embedding_filename = '/Myembedding.pickle'
-
-        with open(data_dir + embedding_filename, 'rb') as f:
-            embeddings = pickle.load(f)
-            #embeddings = pickle.load(f, encoding="latin1")
-            print('embeddings loaded')
-        return embeddings
-
-
     def load_class_id(self, data_dir, total_num):
         if os.path.isfile(data_dir + '/class_info.pickle'):
             with open(data_dir + '/class_info.pickle', 'rb') as f:
@@ -383,20 +356,11 @@ class TextDataset(data.Dataset):
         new_sent_ix = index * self.embeddings_num + sent_ix
         caps, cap_len = self.get_caption(new_sent_ix)
 
-
         if self.use_attribute:
             attribute = self.attributes[self.all_filename_id_dict[key+".jpg"]] # (1,312) array
             #att_conf = self.att_conf[self.all_filename_id_dict[key+".jpg"]]
 
-        if self.use_embedding: 
-            embedding = self.embeddings[index, sent_ix, :]
-        
-        if self.use_attribute and self.use_embedding: 
-            return imgs, caps, cap_len, cls_id, key, attribute, embedding
-        elif self.use_attribute: 
             return imgs, caps, cap_len, cls_id, key, attribute
-        elif self.use_embedding: 
-            return imgs, caps, cap_len, cls_id, key, embedding
         else:
             return imgs, caps, cap_len, cls_id, key
 
@@ -404,105 +368,3 @@ class TextDataset(data.Dataset):
     def __len__(self):
         return len(self.filenames)
 
-
-if __name__ == "__main__":
-    # python datasets.py --cfg cfg/bird_embedding.yml
-    from main import parse_args
-    args = parse_args(['--cfg','cfg/bird_embedding.yml'])
-    if args.cfg_file is not None:
-        cfg_from_file(args.cfg_file)
-
-    if args.gpu_id != -1:
-        cfg.GPU_ID = args.gpu_id
-    else:
-        cfg.CUDA = False
-
-    if args.data_dir != '':
-        cfg.DATA_DIR = args.data_dir
-
-    args.manualSeed = 100
-    random.seed(args.manualSeed)
-    np.random.seed(args.manualSeed)
-    torch.manual_seed(args.manualSeed)
-    if cfg.CUDA:
-        torch.cuda.manual_seed_all(args.manualSeed)
-
-    imsize = cfg.TREE.BASE_SIZE * (2 ** (cfg.TREE.BRANCH_NUM - 1))
-    image_transform = transforms.Compose([
-        transforms.Resize(int(imsize * 76 / 64)),
-        transforms.RandomCrop(imsize),
-        transforms.RandomHorizontalFlip()])
-    
-    dataset_train = TextDataset(cfg.DATA_DIR, 'train',
-                          base_size=cfg.TREE.BASE_SIZE,
-                          transform=image_transform)
-    assert dataset_train
-    dataset_test = TextDataset(cfg.DATA_DIR, 'test',
-                          base_size=cfg.TREE.BASE_SIZE,
-                          transform=image_transform)
-    assert dataset_test
-
-    dataloader_train = torch.utils.data.DataLoader(
-        dataset_train, batch_size=cfg.TRAIN.BATCH_SIZE,
-        drop_last=False, shuffle=False, num_workers=int(cfg.WORKERS))
-    
-    dataloader_test = torch.utils.data.DataLoader(
-        dataset_test, batch_size=cfg.TRAIN.BATCH_SIZE,
-        drop_last=False, shuffle=False, num_workers=int(cfg.WORKERS))
-
-    # Build text encoder    
-    from model import RNN_ENCODER
-    n_words = dataset_train.n_words
-    text_encoder = \
-        RNN_ENCODER(n_words, nhidden=cfg.TEXT.EMBEDDING_DIM)
-    state_dict = \
-        torch.load(cfg.TRAIN.NET_E,
-                   map_location=lambda storage, loc: storage) #load text encoder
-    text_encoder.load_state_dict(state_dict)
-    for p in text_encoder.parameters():
-        p.requires_grad = False
-    print('Load text encoder from:', cfg.TRAIN.NET_E)
-    text_encoder.eval()
-
-    if cfg.CUDA:
-        text_encoder = text_encoder.cuda()
-
-    def create_embeddings(dataloader, text_encoder):
-        emb_dict = {}
-        for sent_ix in range(cfg.TEXT.CAPTIONS_PER_IMAGE):
-            dataloader.dataset.specify_caption_index(sent_ix) 
-            for step, data in enumerate(dataloader):
-                real_imgs, wrong_imgs, captions, sorted_cap_lens,\
-                    class_ids, keys = prepare_data(data)
-
-                batch_size = len(sorted_cap_lens)
-                hidden = text_encoder.init_hidden(batch_size)
-                # words_embs: batch_size x nef x seq_len
-                # sent_emb: batch_size x nef
-                words_embs, sent_emb = text_encoder(captions, sorted_cap_lens, hidden)
-                words_embs, sent_emb = words_embs.detach(), sent_emb.detach()
-
-                for i, key in enumerate(keys):
-                    emb_elements = { "words": words_embs[i],
-                                    "sentence": sent_emb[i],
-                                    "cap_len": sorted_cap_lens[i] }
-                    if key not in emb_dict:
-                        emb_dict[key] = [emb_elements]
-                    else:
-                        emb_dict[key].append(emb_elements)
-                if step % 100 == 0:
-                    print("processed:", step)
-        return emb_dict
-    
-    print("Creating train embeddings")
-    train_emb_dict = create_embeddings(dataloader_train, text_encoder) 
-    print("Creating test embeddings")
-    test_emb_dict = create_embeddings(dataloader_test, text_encoder)
-    def save_emb(path, emb_dict):
-        with open(path, "wb") as f:
-            pickle.dump(emb_dict, f)
-
-    print("Saving train embeddings")
-    save_emb("embedding_train.pickle", train_emb_dict)
-    print("Saving test embeddings")
-    save_emb("embedding_test.pickle", test_emb_dict)
