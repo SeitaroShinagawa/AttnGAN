@@ -29,6 +29,7 @@ def parse_args(args=None):
     parser.add_argument('--gpu', dest='gpu_id', type=int, default=-1)
     parser.add_argument('--data_dir', dest='data_dir', type=str, default='')
     parser.add_argument('--manualSeed', type=int, help='manual seed')
+    parser.add_argument('--mode', type=str, default='') # "attribute" use only attribute as input (not caption)
     if args is not None: 
         args = parser.parse_args(args)
     else:
@@ -136,7 +137,7 @@ if __name__ == "__main__":
         drop_last=True, shuffle=bshuffle, num_workers=int(cfg.WORKERS))
 
     # Define models and go to train/evaluate
-    algo = trainer(output_dir, dataloader, dataset.n_words, dataset.ixtoword)
+    algo = trainer(output_dir, dataloader, dataset.n_words, dataset.ixtoword, mode=args.mode)
 
     start_t = time.time()
     if cfg.TRAIN.FLAG:
